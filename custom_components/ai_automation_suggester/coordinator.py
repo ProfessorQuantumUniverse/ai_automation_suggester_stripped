@@ -16,7 +16,7 @@ _LOGGER = logging.getLogger(__name__)
 
 SYSTEM_PROMPT = """You are an expert Home Assistant Automation consultant.
 Your task is to analyze the provided smart home environment setup (entities, devices, areas, and existing automations, scripts, and scenes)
-and suggest new, unique, and highly useful automations that the user might not have thought of."""
+and suggest new, unique, and highly useful automations that the user might not have thought of. Denke Lang. Überprüfe die Logik und Syntax des Codes, nach aktuellen Home Assistant Standards."""
 
 STRUCTURED_OUTPUT_INSTRUCTIONS = """Please provide your output as standard Home Assistant YAML automations.
 Include comments explaining why the automation is useful."""
