@@ -1,7 +1,7 @@
 {
   "domain": "ai_automation_suggester",
   "name": "AI Automation Prompt Builder",
-  "codeowners": ["@ITSpecialist111"],
+  "codeowners": ["@loren"],
   "config_flow": true,
   "documentation": "https://github.com/ITSpecialist111/ai_automation_suggester",
   "iot_class": "local_polling",

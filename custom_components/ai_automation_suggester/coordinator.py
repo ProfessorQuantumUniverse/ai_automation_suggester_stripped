@@ -15,7 +15,7 @@ from .language_utils import suggestion_language_instruction
 _LOGGER = logging.getLogger(__name__)
 
 SYSTEM_PROMPT = """You are an expert Home Assistant Automation consultant.
-Your task is to analyze the provided smart home environment setup (entities, devices, areas, and existing automations)
+Your task is to analyze the provided smart home environment setup (entities, devices, areas, and existing automations, scripts, and scenes)
 and suggest new, unique, and highly useful automations that the user might not have thought of."""
 
 STRUCTURED_OUTPUT_INSTRUCTIONS = """Please provide your output as standard Home Assistant YAML automations.
@@ -32,8 +32,8 @@ class PromptBuilder:
         self.custom_system_prompt = self._opt(CONF_CUSTOM_SYSTEM_PROMPT, "")
         
         self.selected_domains = []
-        self.entity_limit = 200
-        self.automation_limit = 50
+        self.entity_limit = 100
+        self.yaml_limit = 15
         self.automation_read_file = True
         
         self.entity_registry = er.async_get(self.hass)
@@ -98,11 +98,10 @@ class PromptBuilder:
         return bool(area_names & excluded)
 
     async def _build_prompt(self, entities: dict) -> str:
-        max_attr = 500
-        max_autom = self.automation_limit
+        max_attr = 150
+        max_yaml = self.yaml_limit
         ent_sections: list[str] = []
         for entity_id, meta in random.sample(list(entities.items()), min(len(entities), self.entity_limit)):
-            domain = entity_id.split(".", 1)[0]
             attr_str = str(meta["attributes"])
             if len(attr_str) > max_attr:
                 attr_str = f"{attr_str[:max_attr]}...(truncated)"
@@ -122,29 +121,24 @@ class PromptBuilder:
                 if area_entry:
                     area_name = area_entry.name
 
-            block = (
-                f"Entity: {entity_id}\n"
-                f"Friendly Name: {meta['friendly_name']}\n"
-                f"Domain: {domain}\n"
-                f"State: {meta['state']}\n"
-                f"Attributes: {attr_str}\n"
-                f"Area: {area_name}\n"
-            )
+            block = f"- {entity_id} ({meta['friendly_name']}): state={meta['state']} | Area: {area_name}\n"
+            if attr_str and attr_str != "{}":
+                block += f"  Attrs: {attr_str}\n"
             if device_entry:
-                block += (
-                    "Device Info:\n"
-                    f"  Manufacturer: {device_entry.manufacturer}\n"
-                    f"  Model: {device_entry.model}\n"
-                    f"  Device Name: {device_entry.name_by_user or device_entry.name}\n"
-                    f"  Device ID: {device_entry.id}\n"
-                )
-            block += f"Last Changed: {meta['last_changed']}\nLast Updated: {meta['last_updated']}\n---\n"
+                block += f"  Device: {device_entry.manufacturer} {device_entry.model} ({device_entry.name_by_user or device_entry.name})\n"
             ent_sections.append(block)
 
-        autom_sections = self._read_automations_default(max_autom, max_attr)
-        autom_codes: list[str] = []
+        overview_sections = []
+        overview_sections.extend(self._read_entities_overview("automation", max_yaml, max_attr))
+        overview_sections.extend(self._read_entities_overview("script", max_yaml, max_attr))
+        overview_sections.extend(self._read_entities_overview("scene", max_yaml, max_attr))
+
+        yaml_codes: list[str] = []
         if self.automation_read_file:
-            autom_codes = await self._read_automations_file_method(max_autom)
+            yaml_codes.extend(await self._read_yaml_file("automations.yaml", max_yaml))
+            yaml_codes.extend(await self._read_yaml_file("scripts.yaml", max_yaml))
+            yaml_codes.extend(await self._read_yaml_file("scenes.yaml", max_yaml))
+
         language_instruction = suggestion_language_instruction(getattr(self.hass.config, "language", None))
         language_block = f"{language_instruction}\n\n" if language_instruction else ""
 
@@ -155,51 +149,51 @@ class PromptBuilder:
             f"{STRUCTURED_OUTPUT_INSTRUCTIONS}\n\n"
             f"{language_block}"
             f"Entities in your Home Assistant (sampled):\n{''.join(ent_sections)}\n"
-            "Existing Automations Overview:\n"
-            f"{''.join(autom_sections) if autom_sections else 'None found.'}\n\n"
-            "Automations YAML Code (for analysis and improvement):\n"
-            f"{''.join(autom_codes) if autom_codes else 'No automations YAML code included.'}\n\n"
-            "Analyze the entities and existing automations. Propose useful new automations or improvements "
+            "Existing Logic Overview (Automations, Scripts, Scenes):\n"
+            f"{''.join(overview_sections) if overview_sections else 'None found.'}\n\n"
+            "Logic YAML Code (for analysis and improvement):\n"
+            f"{''.join(yaml_codes) if yaml_codes else 'No YAML code included.'}\n\n"
+            "Analyze the entities, existing automations, scripts, and scenes. Propose useful new automations or improvements "
             "that reference only the entity_ids shown above."
         )
 
-    def _read_automations_default(self, max_autom: int, max_attr: int) -> list[str]:
-        autom_sections: list[str] = []
-        for automation_id in self.hass.states.async_entity_ids("automation")[:max_autom]:
-            state = self.hass.states.get(automation_id)
+    def _read_entities_overview(self, domain: str, max_items: int, max_attr: int) -> list[str]:
+        sections: list[str] = []
+        for entity_id in self.hass.states.async_entity_ids(domain)[:max_items]:
+            state = self.hass.states.get(entity_id)
             if state:
                 attr = str(state.attributes)
                 if len(attr) > max_attr:
                     attr = f"{attr[:max_attr]}...(truncated)"
-                autom_sections.append(
-                    f"Entity: {automation_id}\n"
-                    f"Friendly Name: {state.attributes.get('friendly_name', automation_id)}\n"
-                    f"State: {state.state}\n"
-                    f"Attributes: {attr}\n"
-                    "---\n"
-                )
-        return autom_sections
+                friendly_name = state.attributes.get('friendly_name', entity_id)
+                sections.append(f"- {entity_id} ({friendly_name}): {state.state} | Attrs: {attr}\n")
+        return sections
 
-    async def _read_automations_file_method(self, max_autom: int) -> list[str]:
-        automations_file = Path(self.hass.config.path()) / "automations.yaml"
-        autom_codes: list[str] = []
+    async def _read_yaml_file(self, filename: str, max_items: int) -> list[str]:
+        file_path = Path(self.hass.config.path()) / filename
+        codes: list[str] = []
         try:
-            async with await anyio.open_file(automations_file, "r", encoding="utf-8") as file:
+            async with await anyio.open_file(file_path, "r", encoding="utf-8") as file:
                 content = await file.read()
-            automations = yaml.safe_load(content) or []
-            if not isinstance(automations, list):
-                _LOGGER.warning("automations.yaml did not parse as a list")
-                return autom_codes
-            for automation in automations[:max_autom]:
-                if not isinstance(automation, dict):
+            data = yaml.safe_load(content) or []
+            
+            items = []
+            if isinstance(data, list):
+                items = data
+            elif isinstance(data, dict):
+                items = list(data.values())
+
+            for item in items[:max_items]:
+                if not isinstance(item, dict):
                     continue
-                autom_codes.append(
-                    "Automation YAML:\n`yaml\n"
-                    f"{yaml.safe_dump([automation], sort_keys=False)}"
-                    "`\n---\n"
+                label = filename.split('.')[0].capitalize()
+                codes.append(
+                    f"{label} YAML:\n```yaml\n"
+                    f"{yaml.safe_dump([item], sort_keys=False)}"
+                    "```\n---\n"
                 )
         except FileNotFoundError:
-            _LOGGER.warning("automations.yaml file was not found")
+            _LOGGER.warning("%s file was not found", filename)
         except yaml.YAMLError as err:
-            _LOGGER.warning("Error parsing automations.yaml: %s", err)
-        return autom_codes
+            _LOGGER.warning("Error parsing %s: %s", filename, err)
+        return codes
