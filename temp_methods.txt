@@ -1,58 +1,3 @@
-
-import logging
-import json
-import yaml
-import os
-import random
-import anyio
-from pathlib import Path
-
-from homeassistant.core import HomeAssistant
-from homeassistant.helpers import entity_registry as er, device_registry as dr, area_registry as ar
-from .const import CONF_EXCLUDED_DOMAINS, CONF_EXCLUDED_ENTITIES, CONF_EXCLUDED_AREAS, CONF_CUSTOM_SYSTEM_PROMPT
-from .language_utils import suggestion_language_instruction
-
-_LOGGER = logging.getLogger(__name__)
-
-SYSTEM_PROMPT = """You are an expert Home Assistant Automation consultant.
-Your task is to analyze the provided smart home environment setup (entities, devices, areas, and existing automations)
-and suggest new, unique, and highly useful automations that the user might not have thought of."""
-
-STRUCTURED_OUTPUT_INSTRUCTIONS = """Please provide your output as standard Home Assistant YAML automations.
-Include comments explaining why the automation is useful."""
-
-class PromptBuilder:
-    def __init__(self, hass: HomeAssistant, entry):
-        self.hass = hass
-        self.entry = entry
-
-        self.excluded_domains = self._opt_list(CONF_EXCLUDED_DOMAINS)
-        self.excluded_entities = self._opt_list(CONF_EXCLUDED_ENTITIES)
-        self.excluded_areas = self._opt_list(CONF_EXCLUDED_AREAS)
-        self.custom_system_prompt = self._opt(CONF_CUSTOM_SYSTEM_PROMPT, "")
-        
-        self.selected_domains = []
-        self.entity_limit = 200
-        self.automation_limit = 50
-        self.automation_read_file = True
-        
-        self.entity_registry = er.async_get(self.hass)
-        self.device_registry = dr.async_get(self.hass)
-        self.area_registry = ar.async_get(self.hass)
-
-    def _opt(self, key: str, default=None):
-        return self.entry.options.get(key, self.entry.data.get(key, default))
-
-    def _opt_list(self, key: str, default: list | None = None) -> list[str]:
-        value = self._opt(key, default or [])
-        if isinstance(value, str):
-            return [v.strip() for v in value.split(",") if v.strip()]
-        return value if isinstance(value, list) else []
-
-    async def async_get_prompt(self):
-        entities = self._collect_entities()
-        return await self._build_prompt(entities)
-
     def _collect_entities(self) -> dict[str, dict]:
         current: dict[str, dict] = {}
         selected_domains = set(self.selected_domains)
@@ -148,10 +93,8 @@ class PromptBuilder:
         language_instruction = suggestion_language_instruction(getattr(self.hass.config, "language", None))
         language_block = f"{language_instruction}\n\n" if language_instruction else ""
 
-        base_prompt = self.custom_system_prompt or SYSTEM_PROMPT
-
         return (
-            f"{base_prompt}\n\n"
+            f"{self.SYSTEM_PROMPT}\n\n"
             f"{STRUCTURED_OUTPUT_INSTRUCTIONS}\n\n"
             f"{language_block}"
             f"Entities in your Home Assistant (sampled):\n{''.join(ent_sections)}\n"
@@ -194,12 +137,14 @@ class PromptBuilder:
                 if not isinstance(automation, dict):
                     continue
                 autom_codes.append(
-                    "Automation YAML:\n`yaml\n"
+                    "Automation YAML:\n```yaml\n"
                     f"{yaml.safe_dump([automation], sort_keys=False)}"
-                    "`\n---\n"
+                    "```\n---\n"
                 )
         except FileNotFoundError:
             _LOGGER.warning("automations.yaml file was not found")
         except yaml.YAMLError as err:
             _LOGGER.warning("Error parsing automations.yaml: %s", err)
         return autom_codes
+
+    async def _dispatch(self, prompt: str) -> str | None:

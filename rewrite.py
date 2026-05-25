@@ -1,4 +1,4 @@
-
+code = '''
 import logging
 import json
 import yaml
@@ -123,22 +123,22 @@ class PromptBuilder:
                     area_name = area_entry.name
 
             block = (
-                f"Entity: {entity_id}\n"
-                f"Friendly Name: {meta['friendly_name']}\n"
-                f"Domain: {domain}\n"
-                f"State: {meta['state']}\n"
-                f"Attributes: {attr_str}\n"
-                f"Area: {area_name}\n"
+                f"Entity: {entity_id}\\n"
+                f"Friendly Name: {meta['friendly_name']}\\n"
+                f"Domain: {domain}\\n"
+                f"State: {meta['state']}\\n"
+                f"Attributes: {attr_str}\\n"
+                f"Area: {area_name}\\n"
             )
             if device_entry:
                 block += (
-                    "Device Info:\n"
-                    f"  Manufacturer: {device_entry.manufacturer}\n"
-                    f"  Model: {device_entry.model}\n"
-                    f"  Device Name: {device_entry.name_by_user or device_entry.name}\n"
-                    f"  Device ID: {device_entry.id}\n"
+                    "Device Info:\\n"
+                    f"  Manufacturer: {device_entry.manufacturer}\\n"
+                    f"  Model: {device_entry.model}\\n"
+                    f"  Device Name: {device_entry.name_by_user or device_entry.name}\\n"
+                    f"  Device ID: {device_entry.id}\\n"
                 )
-            block += f"Last Changed: {meta['last_changed']}\nLast Updated: {meta['last_updated']}\n---\n"
+            block += f"Last Changed: {meta['last_changed']}\\nLast Updated: {meta['last_updated']}\\n---\\n"
             ent_sections.append(block)
 
         autom_sections = self._read_automations_default(max_autom, max_attr)
@@ -146,19 +146,19 @@ class PromptBuilder:
         if self.automation_read_file:
             autom_codes = await self._read_automations_file_method(max_autom)
         language_instruction = suggestion_language_instruction(getattr(self.hass.config, "language", None))
-        language_block = f"{language_instruction}\n\n" if language_instruction else ""
+        language_block = f"{language_instruction}\\n\\n" if language_instruction else ""
 
         base_prompt = self.custom_system_prompt or SYSTEM_PROMPT
 
         return (
-            f"{base_prompt}\n\n"
-            f"{STRUCTURED_OUTPUT_INSTRUCTIONS}\n\n"
+            f"{base_prompt}\\n\\n"
+            f"{STRUCTURED_OUTPUT_INSTRUCTIONS}\\n\\n"
             f"{language_block}"
-            f"Entities in your Home Assistant (sampled):\n{''.join(ent_sections)}\n"
-            "Existing Automations Overview:\n"
-            f"{''.join(autom_sections) if autom_sections else 'None found.'}\n\n"
-            "Automations YAML Code (for analysis and improvement):\n"
-            f"{''.join(autom_codes) if autom_codes else 'No automations YAML code included.'}\n\n"
+            f"Entities in your Home Assistant (sampled):\\n{''.join(ent_sections)}\\n"
+            "Existing Automations Overview:\\n"
+            f"{''.join(autom_sections) if autom_sections else 'None found.'}\\n\\n"
+            "Automations YAML Code (for analysis and improvement):\\n"
+            f"{''.join(autom_codes) if autom_codes else 'No automations YAML code included.'}\\n\\n"
             "Analyze the entities and existing automations. Propose useful new automations or improvements "
             "that reference only the entity_ids shown above."
         )
@@ -172,11 +172,11 @@ class PromptBuilder:
                 if len(attr) > max_attr:
                     attr = f"{attr[:max_attr]}...(truncated)"
                 autom_sections.append(
-                    f"Entity: {automation_id}\n"
-                    f"Friendly Name: {state.attributes.get('friendly_name', automation_id)}\n"
-                    f"State: {state.state}\n"
-                    f"Attributes: {attr}\n"
-                    "---\n"
+                    f"Entity: {automation_id}\\n"
+                    f"Friendly Name: {state.attributes.get('friendly_name', automation_id)}\\n"
+                    f"State: {state.state}\\n"
+                    f"Attributes: {attr}\\n"
+                    "---\\n"
                 )
         return autom_sections
 
@@ -194,12 +194,15 @@ class PromptBuilder:
                 if not isinstance(automation, dict):
                     continue
                 autom_codes.append(
-                    "Automation YAML:\n`yaml\n"
+                    "Automation YAML:\\n`yaml\\n"
                     f"{yaml.safe_dump([automation], sort_keys=False)}"
-                    "`\n---\n"
+                    "`\\n---\\n"
                 )
         except FileNotFoundError:
             _LOGGER.warning("automations.yaml file was not found")
         except yaml.YAMLError as err:
             _LOGGER.warning("Error parsing automations.yaml: %s", err)
         return autom_codes
+'''
+with open('custom_components/ai_automation_suggester/coordinator.py', 'w', encoding='utf-8') as f:
+    f.write(code)
